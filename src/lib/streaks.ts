@@ -31,6 +31,32 @@ export function streakFor(
   return currentStreak(datesWithCheck(checkins, key), today)
 }
 
+export function longestStreak(dates: Iterable<string>): number {
+  const sorted = Array.from(new Set(dates)).sort()
+  let best = 0
+  let run = 0
+  let previous: string | null = null
+
+  for (const date of sorted) {
+    run = previous !== null && addDays(previous, 1) === date ? run + 1 : 1
+    previous = date
+    if (run > best) best = run
+  }
+
+  return best
+}
+
+export function fullHouseDates(
+  checkins: Record<string, DayCheckins>,
+): string[] {
+  return Object.keys(checkins)
+    .filter((date) => {
+      const day = checkins[date]
+      return day.window && day.cleanDay && day.kids
+    })
+    .sort()
+}
+
 export function cumulativeCount(
   checkins: Record<string, DayCheckins>,
   keys: CheckKey[],

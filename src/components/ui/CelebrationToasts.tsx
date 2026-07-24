@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { ArrowUp, Palette, Trophy } from 'lucide-react'
+import { ArrowUp, Coins, Palette, Trophy } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { useAppStore } from '../../store/useAppStore'
@@ -12,6 +12,7 @@ const KIND_ICONS: Record<CelebrationKind, LucideIcon> = {
   'level-up': ArrowUp,
   achievement: Trophy,
   theme: Palette,
+  bonus: Coins,
 }
 
 const RARITY_ACCENTS: Record<Rarity, string> = {
@@ -24,6 +25,7 @@ const RARITY_ACCENTS: Record<Rarity, string> = {
 function accentFor(celebration: Celebration): string {
   if (celebration.rarity) return RARITY_ACCENTS[celebration.rarity]
   if (celebration.kind === 'level-up') return RARITY_ACCENTS.legendary
+  if (celebration.kind === 'bonus') return RARITY_ACCENTS.common
   return RARITY_ACCENTS.rare
 }
 
@@ -72,7 +74,7 @@ export function CelebrationToasts() {
   return (
     <div
       aria-live="polite"
-      className="pointer-events-none fixed inset-x-0 bottom-0 z-20 mx-auto flex w-full max-w-md flex-col gap-2 px-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]"
+      className="pointer-events-none fixed inset-x-0 bottom-0 z-20 mx-auto flex w-full max-w-md flex-col gap-2 px-5 pb-[calc(4.75rem+env(safe-area-inset-bottom))]"
     >
       <AnimatePresence initial={false} mode={prefersReducedMotion ? 'wait' : 'sync'}>
         {celebrations.map((celebration) => (

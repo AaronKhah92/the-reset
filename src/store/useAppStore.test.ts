@@ -16,8 +16,21 @@ beforeEach(() => {
     checkins: {},
     celebrations: [],
     unlockedThemes: ['default'],
+    customQuest: { name: null, checkins: {} },
+    weightLog: [],
+    monthlyThresholdsGranted: {},
   })
 })
+
+function stampDays(count: number) {
+  const checkins: Record<string, DayCheckins> = {}
+  for (let index = 0; index < count; index += 1) {
+    checkins[`2026-03-${String(index + 1).padStart(2, '0')}`] = day({
+      window: true,
+    })
+  }
+  useAppStore.setState({ checkins })
+}
 
 describe('check', () => {
   it('pays the first check of the day with its bonus', () => {
@@ -85,6 +98,122 @@ describe('check', () => {
     const state = useAppStore.getState()
     expect(state.checkins['2026-03-09']).toBeUndefined()
     expect(state.totalXP).toBe(26 + 26)
+  })
+})
+
+describe('monthly stamp bonuses', () => {
+  it('grants the 5-stamp bonus once the fifth day is stamped', () => {
+    stampDays(4)
+
+    useAppStore.getState().check('kids', '2026-03-05')
+
+    const state = useAppStore.getState()
+    expect(state.monthlyThresholdsGranted['2026-03']).toEqual([5])
+    expect(state.currencies.discipline).toBe(5)
+    expect(state.currencies.presence).toBe(7)
+    expect(state.celebrations.at(-1)).toMatchObject({
+      kind: 'bonus',
+      title: '5 days stamped',
+    })
+  })
+
+  it('never re-grants a threshold already collected', () => {
+    stampDays(4)
+    useAppStore.getState().check('kids', '2026-03-05')
+    const afterBonus = useAppStore.getState().currencies.discipline
+
+    useAppStore.getState().check('window', '2026-03-06')
+
+    expect(useAppStore.getState().currencies.discipline).toBe(afterBonus + 2)
+    expect(useAppStore.getState().monthlyThresholdsGranted['2026-03']).toEqual([
+      5,
+    ])
+  })
+
+  it('keeps thresholds separate per month', () => {
+    stampDays(5)
+    useAppStore.setState({
+      monthlyThresholdsGranted: { '2026-03': [5] },
+    })
+
+    useAppStore.getState().check('window', '2026-04-01')
+
+    expect(
+      useAppStore.getState().monthlyThresholdsGranted['2026-04'],
+    ).toBeUndefined()
+  })
+})
+
+describe('custom quest', () => {
+  it('ignores an empty name', () => {
+    useAppStore.getState().nameCustomQuest('   ')
+    expect(useAppStore.getState().customQuest.name).toBeNull()
+  })
+
+  it('takes a trimmed name', () => {
+    useAppStore.getState().nameCustomQuest('  Walk daily  ')
+    expect(useAppStore.getState().customQuest.name).toBe('Walk daily')
+  })
+
+  it('cannot be checked before it is named', () => {
+    useAppStore.getState().checkCustomQuest(TODAY)
+
+    expect(useAppStore.getState().customQuest.checkins).toEqual({})
+    expect(useAppStore.getState().totalXP).toBe(0)
+  })
+
+  it('pays XP but no currency, and only once per day', () => {
+    const { nameCustomQuest, checkCustomQuest } = useAppStore.getState()
+    nameCustomQuest('Walk daily')
+
+    checkCustomQuest(TODAY)
+    checkCustomQuest(TODAY)
+
+    const state = useAppStore.getState()
+    expect(state.totalXP).toBe(16)
+    expect(state.currencies).toEqual({ discipline: 0, presence: 0 })
+    expect(state.customQuest.checkins).toEqual({ [TODAY]: true })
+  })
+
+  it('does not count toward the three core checks', () => {
+    const { nameCustomQuest, checkCustomQuest } = useAppStore.getState()
+    nameCustomQuest('Walk daily')
+    checkCustomQuest(TODAY)
+
+    expect(useAppStore.getState().checkins[TODAY]).toBeUndefined()
+  })
+})
+
+describe('weight log', () => {
+  it('records an entry without paying any reward', () => {
+    useAppStore.getState().logWeight(92.4, TODAY)
+
+    const state = useAppStore.getState()
+    expect(state.weightLog).toEqual([{ date: TODAY, weight: 92.4 }])
+    expect(state.totalXP).toBe(0)
+    expect(state.currencies).toEqual({ discipline: 0, presence: 0 })
+    expect(state.celebrations).toEqual([])
+  })
+
+  it('replaces the entry for a day rather than duplicating it', () => {
+    const { logWeight } = useAppStore.getState()
+    logWeight(92.4, TODAY)
+    logWeight(91.8, TODAY)
+
+    expect(useAppStore.getState().weightLog).toEqual([
+      { date: TODAY, weight: 91.8 },
+    ])
+  })
+
+  it('keeps entries sorted by date', () => {
+    const { logWeight } = useAppStore.getState()
+    logWeight(90, '2026-03-12')
+    logWeight(91, '2026-03-01')
+
+    expect(useAppStore.getState().weightLog.map((entry) => entry.date)).toEqual([
+      '2026-03-01',
+      '2026-03-12',
+    ])
   })
 })
 

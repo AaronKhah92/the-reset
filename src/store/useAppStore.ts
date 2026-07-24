@@ -1,9 +1,18 @@
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
 import { achievementById, unlockedAchievementIds } from '../lib/achievements'
-import { todayISO } from '../lib/date'
-import { checkinReward } from '../lib/rewards'
-import { streakFor } from '../lib/streaks'
+import {
+  MONTHLY_STAMP_BONUS,
+  pendingStampBonuses,
+  stampCount,
+} from '../lib/calendar'
+import { monthKey, todayISO } from '../lib/date'
+import {
+  CHECKIN_BASE_XP,
+  STREAK_BONUS_CAP,
+  checkinReward,
+} from '../lib/rewards'
+import { currentStreak, streakFor } from '../lib/streaks'
 import { levelFromTotalXP } from '../lib/xp'
 import { EMPTY_DAY } from '../lib/types'
 import type { AppState, CheckKey, Rarity } from '../lib/types'
@@ -34,7 +43,7 @@ function resolveStorage() {
   }
 }
 
-export type CelebrationKind = 'level-up' | 'achievement' | 'theme'
+export type CelebrationKind = 'level-up' | 'achievement' | 'theme' | 'bonus'
 
 export interface Celebration {
   id: string
@@ -46,7 +55,15 @@ export interface Celebration {
 
 interface AppActions {
   check: (key: CheckKey, date?: string) => void
+  nameCustomQuest: (name: string) => void
+  checkCustomQuest: (date?: string) => void
+  logWeight: (weight: number, date?: string) => void
   dismissCelebration: (id: string) => void
+}
+
+interface RewardedMutation {
+  patch: Partial<AppState>
+  celebrations?: Omit<Celebration, 'id'>[]
 }
 
 export type AppStore = AppState & { celebrations: Celebration[] } & AppActions
@@ -132,18 +149,23 @@ export const useAppStore = create<AppStore>()(
   persist(
     (set, get) => {
       const withRewards = (
-        mutate: (state: AppStore) => Partial<AppState> | null,
+        mutate: (state: AppStore) => RewardedMutation | null,
       ) => {
         const current = get()
-        const patch = mutate(current)
-        if (!patch) return
+        const mutation = mutate(current)
+        if (!mutation) return
 
+        const { patch } = mutation
         const next = { ...current, ...patch }
         const queued = diffCelebrations(snapshot(current), snapshot(next))
+        const extra = (mutation.celebrations ?? []).map((celebration) => ({
+          ...celebration,
+          id: celebrationId(),
+        }))
 
         set({
           ...patch,
-          celebrations: [...current.celebrations, ...queued],
+          celebrations: [...current.celebrations, ...queued, ...extra],
         })
       }
 
@@ -167,19 +189,86 @@ export const useAppStore = create<AppStore>()(
               isFirstCheckOfDay,
             )
 
+            const month = monthKey(date)
+            const granted = state.monthlyThresholdsGranted[month] ?? []
+            const earned = pendingStampBonuses(
+              stampCount(checkins, month),
+              granted,
+            )
+            const stampBonus = earned.reduce(
+              (total, threshold) => total + MONTHLY_STAMP_BONUS[threshold],
+              0,
+            )
+
             return {
-              checkins,
-              totalXP: state.totalXP + reward.xp,
-              currencies: {
-                discipline:
-                  state.currencies.discipline +
-                  (reward.currency === 'discipline' ? reward.currencyAmount : 0),
-                presence:
-                  state.currencies.presence +
-                  (reward.currency === 'presence' ? reward.currencyAmount : 0),
+              patch: {
+                checkins,
+                totalXP: state.totalXP + reward.xp,
+                currencies: {
+                  discipline:
+                    state.currencies.discipline +
+                    stampBonus +
+                    (reward.currency === 'discipline'
+                      ? reward.currencyAmount
+                      : 0),
+                  presence:
+                    state.currencies.presence +
+                    stampBonus +
+                    (reward.currency === 'presence' ? reward.currencyAmount : 0),
+                },
+                monthlyThresholdsGranted: earned.length
+                  ? {
+                      ...state.monthlyThresholdsGranted,
+                      [month]: [...granted, ...earned],
+                    }
+                  : state.monthlyThresholdsGranted,
+              },
+              celebrations: earned.map((threshold) => ({
+                kind: 'bonus' as const,
+                title: `${threshold} days stamped`,
+                detail: `+${MONTHLY_STAMP_BONUS[threshold]} Discipline and Presence`,
+              })),
+            }
+          }),
+
+        nameCustomQuest: (name) =>
+          withRewards((state) => {
+            const trimmed = name.trim()
+            if (!trimmed || trimmed === state.customQuest.name) return null
+
+            return {
+              patch: {
+                customQuest: { ...state.customQuest, name: trimmed },
               },
             }
           }),
+
+        checkCustomQuest: (date = todayISO()) =>
+          withRewards((state) => {
+            if (!state.customQuest.name) return null
+            if (state.customQuest.checkins[date]) return null
+
+            const checkins = { ...state.customQuest.checkins, [date]: true }
+            const streak = currentStreak(Object.keys(checkins), date)
+
+            return {
+              patch: {
+                customQuest: { ...state.customQuest, checkins },
+                totalXP:
+                  state.totalXP +
+                  CHECKIN_BASE_XP +
+                  Math.min(streak, STREAK_BONUS_CAP),
+              },
+            }
+          }),
+
+        logWeight: (weight, date = todayISO()) =>
+          set((state) => ({
+            weightLog: [
+              ...state.weightLog.filter((entry) => entry.date !== date),
+              { date, weight },
+            ].sort((a, b) => a.date.localeCompare(b.date)),
+          })),
 
         dismissCelebration: (id) =>
           set((state) => ({
