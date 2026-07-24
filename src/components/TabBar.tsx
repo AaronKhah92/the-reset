@@ -1,12 +1,13 @@
-import { CalendarDays, Home, UserRound } from 'lucide-react'
+import { CalendarDays, Home, Sparkles, UserRound } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { motion, useReducedMotion } from 'motion/react'
 
-export type TabKey = 'home' | 'calendar' | 'character'
+export type TabKey = 'home' | 'calendar' | 'codex' | 'character'
 
 const TABS: { key: TabKey; label: string; icon: LucideIcon }[] = [
   { key: 'home', label: 'Home', icon: Home },
   { key: 'calendar', label: 'Calendar', icon: CalendarDays },
+  { key: 'codex', label: 'Codex', icon: Sparkles },
   { key: 'character', label: 'Character', icon: UserRound },
 ]
 

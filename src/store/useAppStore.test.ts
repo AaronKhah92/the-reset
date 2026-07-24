@@ -19,6 +19,11 @@ beforeEach(() => {
     customQuest: { name: null, checkins: {} },
     weightLog: [],
     monthlyThresholdsGranted: {},
+    equippedTheme: 'default',
+    equippedTitle: null,
+    purchasedFlourishes: [],
+    lastBossMonthProcessed: null,
+    bossRecap: null,
   })
 })
 
@@ -218,33 +223,145 @@ describe('weight log', () => {
 })
 
 describe('reward wrapper', () => {
-  it('queues a level-up celebration when the level changes', () => {
+  it('queues the level-up before the achievement', () => {
     useAppStore.setState({ totalXP: 79 })
 
     useAppStore.getState().check('window', TODAY)
 
     const { celebrations, totalXP } = useAppStore.getState()
     expect(totalXP).toBe(105)
-    expect(celebrations).toHaveLength(1)
-    expect(celebrations[0]).toMatchObject({
-      kind: 'level-up',
-      title: 'Level 2',
-    })
+    expect(celebrations.map((celebration) => celebration.kind)).toEqual([
+      'level-up',
+      'achievement',
+    ])
+    expect(celebrations[0]).toMatchObject({ title: 'Level 2' })
+    expect(celebrations[1]).toMatchObject({ title: 'First Step' })
   })
 
   it('stays quiet when nothing crosses a threshold', () => {
-    useAppStore.getState().check('window', TODAY)
+    useAppStore.getState().check('window', '2026-03-09')
+    useAppStore.setState({ celebrations: [] })
+
+    useAppStore.getState().check('cleanDay', '2026-03-09')
 
     expect(useAppStore.getState().celebrations).toEqual([])
   })
 
   it('dismisses a celebration by id', () => {
-    useAppStore.setState({ totalXP: 79 })
     useAppStore.getState().check('window', TODAY)
 
     const queued = useAppStore.getState().celebrations[0]
     useAppStore.getState().dismissCelebration(queued.id)
 
-    expect(useAppStore.getState().celebrations).toEqual([])
+    expect(
+      useAppStore.getState().celebrations.map((c) => c.id),
+    ).not.toContain(queued.id)
+  })
+
+  it('unlocks a collection theme and celebrates it after the achievement', () => {
+    for (let index = 1; index <= 6; index += 1) {
+      useAppStore.getState().check('cleanDay', `2026-03-0${index}`)
+    }
+    useAppStore.setState({ celebrations: [] })
+
+    useAppStore.getState().check('cleanDay', '2026-03-07')
+
+    const { unlockedThemes, celebrations } = useAppStore.getState()
+    expect(unlockedThemes).toContain('frost')
+
+    const kinds = celebrations.map((celebration) => celebration.kind)
+    expect(kinds).toContain('theme')
+    expect(kinds.indexOf('achievement')).toBeLessThan(kinds.indexOf('theme'))
+    expect(celebrations.find((c) => c.kind === 'theme')).toMatchObject({
+      title: 'Frost',
+    })
+  })
+})
+
+describe('wardrobe and shop', () => {
+  it('refuses to equip a theme that is not unlocked', () => {
+    useAppStore.getState().equipTheme('aurora')
+    expect(useAppStore.getState().equippedTheme).toBe('default')
+  })
+
+  it('equips an unlocked theme', () => {
+    useAppStore.setState({ unlockedThemes: ['default', 'frost'] })
+    useAppStore.getState().equipTheme('frost')
+    expect(useAppStore.getState().equippedTheme).toBe('frost')
+  })
+
+  it('refuses a title that has not been earned', () => {
+    useAppStore.getState().equipTitle('the Champion')
+    expect(useAppStore.getState().equippedTitle).toBeNull()
+  })
+
+  it('equips an earned title and allows clearing it', () => {
+    useAppStore.setState({ totalXP: 1000 })
+
+    useAppStore.getState().equipTitle('the Apprentice')
+    expect(useAppStore.getState().equippedTitle).toBe('the Apprentice')
+
+    useAppStore.getState().equipTitle(null)
+    expect(useAppStore.getState().equippedTitle).toBeNull()
+  })
+
+  it('will not sell a flourish you cannot afford', () => {
+    useAppStore.getState().purchaseFlourish('gilded_frame')
+
+    expect(useAppStore.getState().purchasedFlourishes).toEqual([])
+    expect(useAppStore.getState().currencies.discipline).toBe(0)
+  })
+
+  it('charges once and only once', () => {
+    useAppStore.setState({ currencies: { discipline: 100, presence: 0 } })
+
+    useAppStore.getState().purchaseFlourish('gilded_frame')
+    useAppStore.getState().purchaseFlourish('gilded_frame')
+
+    expect(useAppStore.getState().purchasedFlourishes).toEqual(['gilded_frame'])
+    expect(useAppStore.getState().currencies.discipline).toBe(70)
+  })
+})
+
+describe('monthly boss fight', () => {
+  it('does nothing on the first run of a month with no history', () => {
+    useAppStore.getState().processMonthlyBoss(TODAY)
+
+    const state = useAppStore.getState()
+    expect(state.bossRecap).toBeNull()
+    expect(state.lastBossMonthProcessed).toBe('2026-03')
+    expect(state.currencies).toEqual({ discipline: 0, presence: 0 })
+  })
+
+  it('pays out and shows a recap for an active previous month', () => {
+    useAppStore.setState({
+      checkins: {
+        '2026-02-01': day({ window: true }),
+        '2026-02-02': day({ window: true, kids: true }),
+      },
+    })
+
+    useAppStore.getState().processMonthlyBoss(TODAY)
+
+    const state = useAppStore.getState()
+    expect(state.bossRecap).toMatchObject({ month: '2026-02', stamps: 2 })
+    expect(state.currencies).toEqual({ discipline: 10, presence: 10 })
+    expect(state.lastBossMonthProcessed).toBe('2026-03')
+  })
+
+  it('never runs twice for the same month', () => {
+    useAppStore.setState({
+      checkins: { '2026-02-01': day({ window: true }) },
+    })
+
+    useAppStore.getState().processMonthlyBoss(TODAY)
+    useAppStore.getState().dismissBossRecap()
+    useAppStore.getState().processMonthlyBoss(TODAY)
+
+    expect(useAppStore.getState().currencies).toEqual({
+      discipline: 10,
+      presence: 10,
+    })
+    expect(useAppStore.getState().bossRecap).toBeNull()
   })
 })

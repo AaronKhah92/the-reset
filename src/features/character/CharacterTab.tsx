@@ -1,8 +1,10 @@
 import { daysBetween, todayISO } from '../../lib/date'
 import { deriveStats } from '../../lib/stats'
 import { levelFromTotalXP } from '../../lib/xp'
+import { ShopSection } from '../shop/ShopSection'
 import { useAppStore } from '../../store/useAppStore'
 import { StatCard } from './StatCard'
+import { Wardrobe } from './Wardrobe'
 import { WeightField } from './WeightField'
 
 export function CharacterTab() {
@@ -39,6 +41,8 @@ export function CharacterTab() {
         ))}
       </div>
 
+      <Wardrobe />
+      <ShopSection />
       <WeightField />
     </section>
   )

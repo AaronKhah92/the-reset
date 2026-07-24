@@ -1,6 +1,15 @@
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
-import { achievementById, unlockedAchievementIds } from '../lib/achievements'
+import {
+  achievementById,
+  unlockedAchievementIds,
+  unlockedTitles,
+} from '../lib/achievements'
+import { buildBossRecap, previousMonth } from '../lib/boss'
+import type { BossRecap } from '../lib/boss'
+import { earnedThemeIds } from '../lib/collections'
+import { canAfford, flourishById } from '../lib/flourishes'
+import { themeById } from '../lib/themes'
 import {
   MONTHLY_STAMP_BONUS,
   pendingStampBonuses,
@@ -58,6 +67,11 @@ interface AppActions {
   nameCustomQuest: (name: string) => void
   checkCustomQuest: (date?: string) => void
   logWeight: (weight: number, date?: string) => void
+  equipTheme: (themeId: string) => void
+  equipTitle: (title: string | null) => void
+  purchaseFlourish: (id: string) => void
+  processMonthlyBoss: (today?: string) => void
+  dismissBossRecap: () => void
   dismissCelebration: (id: string) => void
 }
 
@@ -66,7 +80,10 @@ interface RewardedMutation {
   celebrations?: Omit<Celebration, 'id'>[]
 }
 
-export type AppStore = AppState & { celebrations: Celebration[] } & AppActions
+export type AppStore = AppState & {
+  celebrations: Celebration[]
+  bossRecap: BossRecap | null
+} & AppActions
 
 interface RewardSnapshot {
   level: number
@@ -93,10 +110,10 @@ function createInitialState(): AppState {
   }
 }
 
-function snapshot(state: AppState): RewardSnapshot {
+function snapshot(state: AppState, today: string): RewardSnapshot {
   return {
     level: levelFromTotalXP(state.totalXP).level,
-    achievements: unlockedAchievementIds(state),
+    achievements: unlockedAchievementIds(state, today),
     themes: state.unlockedThemes,
   }
 }
@@ -137,7 +154,7 @@ function diffCelebrations(
     queued.push({
       id: celebrationId(),
       kind: 'theme',
-      title: theme,
+      title: themeById(theme).name,
       detail: 'Theme unlocked',
     })
   }
@@ -150,14 +167,23 @@ export const useAppStore = create<AppStore>()(
     (set, get) => {
       const withRewards = (
         mutate: (state: AppStore) => RewardedMutation | null,
+        today: string = todayISO(),
       ) => {
         const current = get()
         const mutation = mutate(current)
         if (!mutation) return
 
-        const { patch } = mutation
-        const next = { ...current, ...patch }
-        const queued = diffCelebrations(snapshot(current), snapshot(next))
+        const applied = { ...current, ...mutation.patch }
+        const unlockedThemes = Array.from(
+          new Set([...applied.unlockedThemes, ...earnedThemeIds(applied.checkins)]),
+        )
+        const patch = { ...mutation.patch, unlockedThemes }
+        const next = { ...applied, unlockedThemes }
+
+        const queued = diffCelebrations(
+          snapshot(current, today),
+          snapshot(next, today),
+        )
         const extra = (mutation.celebrations ?? []).map((celebration) => ({
           ...celebration,
           id: celebrationId(),
@@ -172,6 +198,7 @@ export const useAppStore = create<AppStore>()(
       return {
         ...createInitialState(),
         celebrations: [],
+        bossRecap: null,
 
         check: (key, date = todayISO()) =>
           withRewards((state) => {
@@ -269,6 +296,68 @@ export const useAppStore = create<AppStore>()(
               { date, weight },
             ].sort((a, b) => a.date.localeCompare(b.date)),
           })),
+
+        equipTheme: (themeId) =>
+          set((state) =>
+            state.unlockedThemes.includes(themeId)
+              ? { equippedTheme: themeId }
+              : {},
+          ),
+
+        equipTitle: (title) =>
+          set((state) =>
+            title === null || unlockedTitles(state).includes(title)
+              ? { equippedTitle: title }
+              : {},
+          ),
+
+        purchaseFlourish: (id) =>
+          set((state) => {
+            const flourish = flourishById(id)
+            if (!flourish) return {}
+            if (state.purchasedFlourishes.includes(id)) return {}
+            if (!canAfford(flourish, state.currencies)) return {}
+
+            return {
+              purchasedFlourishes: [...state.purchasedFlourishes, id],
+              currencies: {
+                ...state.currencies,
+                [flourish.currency]:
+                  state.currencies[flourish.currency] - flourish.cost,
+              },
+            }
+          }),
+
+        processMonthlyBoss: (today = todayISO()) => {
+          const state = get()
+          const month = monthKey(today)
+          if (state.lastBossMonthProcessed === month) return
+
+          const recap = buildBossRecap(state.checkins, previousMonth(today))
+
+          if (!recap) {
+            set({ lastBossMonthProcessed: month })
+            return
+          }
+
+          withRewards(
+            (current) => ({
+              patch: {
+                lastBossMonthProcessed: month,
+                currencies: {
+                  discipline:
+                    current.currencies.discipline + recap.reward.discipline,
+                  presence: current.currencies.presence + recap.reward.presence,
+                },
+              },
+            }),
+            today,
+          )
+
+          set({ bossRecap: recap })
+        },
+
+        dismissBossRecap: () => set({ bossRecap: null }),
 
         dismissCelebration: (id) =>
           set((state) => ({

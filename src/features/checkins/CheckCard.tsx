@@ -1,5 +1,6 @@
 import { Check } from 'lucide-react'
 import { motion, useReducedMotion } from 'motion/react'
+import { useAppStore } from '../../store/useAppStore'
 import type { CheckAccent, CheckDefinition } from './checkDefinitions'
 
 const ACCENT_STYLES: Record<
@@ -36,6 +37,9 @@ export function CheckCard({
   onCheck,
 }: CheckCardProps) {
   const prefersReducedMotion = useReducedMotion()
+  const gilded = useAppStore((state) =>
+    state.purchasedFlourishes.includes('gilded_frame'),
+  )
   const accent = ACCENT_STYLES[definition.accent]
   const Icon = definition.icon
 
@@ -50,7 +54,9 @@ export function CheckCard({
       className={`flex w-full items-center gap-4 rounded-2xl border px-4 py-4 text-left transition-colors duration-300 ${
         checked
           ? accent.card
-          : 'border-white/8 bg-obsidian/60 active:border-white/16'
+          : gilded
+            ? 'border-gold/25 bg-obsidian/60 active:border-gold/40'
+            : 'border-white/8 bg-obsidian/60 active:border-white/16'
       }`}
     >
       <span
