@@ -1,0 +1,45 @@
+# The Reset — Cascade Project Rules
+
+Read this fully before writing any code. Also read PROJECT_BRIEF.md before scaffolding — it has the full feature list, design direction, and the exact proven game-logic data (XP curve, quest chapters, achievements) to port in rather than reinvent.
+
+<stack>
+- Vite 8 + React 19 + TypeScript, strict mode on.
+- Tailwind CSS v4 via the `@tailwindcss/vite` plugin. Do not scaffold a `tailwind.config.js` or `postcss.config.js` unless a specific feature genuinely requires it — v4's default setup doesn't need them.
+- State: Zustand, with its `persist` middleware for localStorage. One store for the whole app is enough; don't split into many stores.
+- Animation: the `motion` package (NOT `framer-motion` — that's the old name, deprecated, don't install it). Import from `motion/react`.
+- Icons: `lucide-react`.
+- Celebration effects: `canvas-confetti`.
+- Testing: Vitest for the pure game-logic functions (XP/level math, streak calculation, achievement checks) — these are easy to unit test and easy to silently break, test them.
+- Package manager: npm, unless the human tells you otherwise. Be consistent once chosen.
+- Verify current versions when you actually install (`npm create vite@latest`, etc.) rather than trusting any version numbers written here — install whatever "latest" resolves to at build time.
+</stack>
+
+<non_negotiables>
+These survive the rebuild no matter how many new features get layered on. Ask the human before changing any of them.
+- The daily core loop is exactly 3 check-ins: "Stayed in the window," "Clean day," "Present with the kids." Never add a 4th required daily action, no matter how many new systems exist around it. New systems react to these 3 taps — they don't add more taps.
+- Zero punishment mechanics. A missed day never loses XP, never resets currency, never shows red/shaming UI. Streak counters just quietly reset — no modal, no warning, no guilt copy. "The Comeback" (returning after a gap) is something the app celebrates, not something it lets slide by unremarked.
+- Weight logging stays optional and low-key. No prominent chart, no dashboard widget, no reward or system gated on it. It's a quiet field on the Character screen and nothing else touches it.
+- Mobile-first, one-handed use. Every screen must work great on a phone before it's "done." Desktop enhancements (hover states, keyboard shortcuts) are additive, never load-bearing.
+- Must build to static files and deploy on GitHub Pages. No required server, no required database, no required account/login for the core app to fully function offline-capable on one device.
+</non_negotiables>
+
+<architecture>
+- Single source of truth: a `checkins` log keyed by ISO date (`YYYY-MM-DD`), each entry `{ window: boolean, cleanDay: boolean, kids: boolean }`. Streaks, quest-chapter progress, calendar stamps, and most achievements are DERIVED from this log via pure functions on every render — don't store them redundantly, don't let them drift out of sync. See PROJECT_BRIEF.md §4 for the exact shape and the proven derivation functions.
+- `totalXP` and `currencies` (discipline, presence) are the two exceptions: simple running counters mutated once per rewarded action, not recomputed by replaying history.
+- Every reward-granting action (a check-in, a custom-quest check-in, etc.) should go through one shared wrapper that snapshots level + unlocked achievements + unlocked themes before the mutation, applies the mutation, diffs before/after, and queues celebration toasts/modals in order (level-up, then achievements, then theme/collection unlocks). Don't duplicate this snapshot-diff logic per action — one wrapper, reused everywhere.
+- Feature-colocate components: `src/features/checkins/`, `src/features/quests/`, `src/features/calendar/`, `src/features/codex/`, `src/features/character/`, plus `src/store/`, `src/lib/` (pure logic + data constants), `src/components/ui/` (shared primitives).
+- Every non-trivial animation needs a `useReducedMotion` fallback. Flashy is the brief, but reduced-motion accessibility is still the floor, not optional.
+</architecture>
+
+<deployment>
+- `vite.config.ts` must set `base: '/<repo-name>/'` (exact repo name, case-sensitive) or the deployed site's assets 404.
+- Primary deploy method: GitHub Actions workflow at `.github/workflows/deploy.yml`, building on push to `main` and publishing via `actions/deploy-pages`. Exact workflow file is in PROJECT_BRIEF.md §8 — use it as-is unless an action version is stale, in which case bump it.
+- Repo setting required: Settings → Pages → Source → "GitHub Actions" (not "Deploy from a branch").
+- Confirm Phase 0 (blank scaffold, live on the real Pages URL) actually works before building any feature. Don't let deployment plumbing be the last thing tested.
+</deployment>
+
+<working_style>
+- Work in the phases defined in PROJECT_BRIEF.md §7. Don't jump ahead to Phase 3 features while Phase 1 is half-wired. Stop at each phase boundary and let the human look at it running.
+- When porting v1's game-logic constants (chapter thresholds, achievement list, XP formula), copy the values from PROJECT_BRIEF.md exactly rather than inventing new ones — they're already tuned and tested.
+- Prefer clear, boring state management over cleverness. This is a small app with one user; it does not need the architecture of a multi-tenant SaaS product.
+</working_style>
